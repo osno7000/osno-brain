@@ -9,6 +9,9 @@ import sys
 import argparse
 from pathlib import Path
 from datetime import datetime, date
+from urllib.request import urlopen
+from urllib.error import URLError
+import xml.etree.ElementTree as ET
 
 MIND_DIR = Path.home() / "mind"
 
@@ -84,6 +87,55 @@ def journal(target_date: str = None):
     else:
         print(f"Sem journal para {target_date}")
 
+def news(limit: int = 10):
+    """Fetch headlines dos principais jornais PT via RSS."""
+    feeds = [
+        ("Público", "https://feeds.feedburner.com/PublicoRSS"),
+        ("CM", "https://www.cmjornal.pt/rss"),
+        ("Jornal de Negócios", "https://www.jornaldenegocios.pt/rss/ultimas_noticias.xml"),
+        ("Sol", "https://sol.iol.pt/rss"),
+    ]
+
+    print("=" * 60)
+    print(f"  OSNO — NOTÍCIAS PT  {datetime.now().strftime('%H:%M')}")
+    print("=" * 60)
+
+    for name, url in feeds:
+        print(f"\n📰 {name}")
+        print("-" * 40)
+        try:
+            with urlopen(url, timeout=8) as resp:
+                content = resp.read()
+            root = ET.fromstring(content)
+            ns = ""
+            items = root.findall(".//item")
+            if not items:
+                items = root.findall(".//{http://www.w3.org/2005/Atom}entry")
+                ns = "{http://www.w3.org/2005/Atom}"
+
+            count = 0
+            for item in items:
+                if count >= limit:
+                    break
+                title_el = item.find(f"{ns}title")
+                if title_el is not None and title_el.text:
+                    title = title_el.text.strip()
+                    # limpar CDATA se presente
+                    if title.startswith("<![CDATA["):
+                        title = title[9:-3].strip()
+                    if title:
+                        print(f"  • {title}")
+                        count += 1
+        except URLError as e:
+            print(f"  [erro de rede: {e}]")
+        except ET.ParseError as e:
+            print(f"  [erro XML: {e}]")
+        except Exception as e:
+            print(f"  [erro: {e}]")
+
+    print("\n" + "=" * 60)
+
+
 def summary():
     """Gera um resumo rápido do estado actual."""
     print("=" * 60)
@@ -132,7 +184,7 @@ comandos:
   summary     resumo rápido de tudo
         """
     )
-    parser.add_argument("command", choices=["status", "memories", "journal", "summary"])
+    parser.add_argument("command", choices=["status", "memories", "journal", "summary", "news"])
     parser.add_argument("arg", nargs="?", help="argumento opcional (ex: data para journal)")
 
     args = parser.parse_args()
@@ -145,6 +197,9 @@ comandos:
         journal(args.arg)
     elif args.command == "summary":
         summary()
+    elif args.command == "news":
+        limit = int(args.arg) if args.arg else 5
+        news(limit)
 
 
 if __name__ == "__main__":
